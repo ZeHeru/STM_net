@@ -10,7 +10,7 @@
 
 - Clone this repo:
 ```bash
-git clone https://github.com/junyanz/pytorch-CycleGAN-and-pix2pix
+git clone https://github.com/ZeHeru/STM_net.git
 cd STM_net
 ```
 
