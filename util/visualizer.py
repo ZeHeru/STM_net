@@ -6,7 +6,6 @@ import time
 from . import util, html
 from subprocess import Popen, PIPE
 import torch
-import escnn
 
 
 try:
