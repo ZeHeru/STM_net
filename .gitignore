@@ -1,0 +1,6 @@
+.env
+CLAUDE.md
+*.log
+checkpoints/
+__pycache__/
+datasets/
