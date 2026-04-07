@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch.nn import init
 import functools
 from torch.optim import lr_scheduler
@@ -119,7 +120,7 @@ def init_net(net, init_type='normal', init_gain=0.02, gpu_ids=[]):
     return net
 
 
-def define_G(input_nc, output_nc, ngf, netG, norm='batch', use_dropout=False, init_type='normal', init_gain=0.02, gpu_ids=[], gspace=gspaces.rot2dOnR2(N=2), N=2):
+def define_G(input_nc, output_nc, ngf, netG, norm='batch', use_dropout=False, init_type='normal', init_gain=0.02, gpu_ids=[], N=2):
     """Create a generator
 
     Parameters:
@@ -153,14 +154,26 @@ def define_G(input_nc, output_nc, ngf, netG, norm='batch', use_dropout=False, in
         net = ResnetGenerator(input_nc, output_nc, ngf, norm_layer=norm_layer, use_dropout=use_dropout, n_blocks=9)
     elif netG == 'resnet_6blocks':
         net = ResnetGenerator(input_nc, output_nc, ngf, norm_layer=norm_layer, use_dropout=use_dropout, n_blocks=6)
+    elif netG == 'unet_8':
+        net = UnetGenerator(input_nc, output_nc, 3, ngf, norm_layer=norm_layer, use_dropout=use_dropout)
+    elif netG == 'unet_16':
+        net = UnetGenerator(input_nc, output_nc, 4, ngf, norm_layer=norm_layer, use_dropout=use_dropout)
+    elif netG == 'unet_32':
+        net = UnetGenerator(input_nc, output_nc, 5, ngf, norm_layer=norm_layer, use_dropout=use_dropout)
+    elif netG == 'unet_64':
+        net = UnetGenerator(input_nc, output_nc, 6, ngf, norm_layer=norm_layer, use_dropout=use_dropout)
     elif netG == 'unet_128':
         net = UnetGenerator(input_nc, output_nc, 7, ngf, norm_layer=norm_layer, use_dropout=use_dropout)
     elif netG == 'unet_256':
         net = UnetGenerator(input_nc, output_nc, 8, ngf, norm_layer=norm_layer, use_dropout=use_dropout)
     elif netG == 'en_de':
         net = EncoderDecoderGenerator(input_nc, output_nc, ngf=ngf, num_downs=5, norm_layer=norm_layer, use_dropout=use_dropout)
-    elif netG == 'runet_128':
-        net = EquivariantUnetGenerator(input_nc, output_nc, gspace, 7, ngf, use_dropout=use_dropout)
+    elif netG == 'standard_unet':
+        net = StandardUNet(input_nc, output_nc, ngf, norm_layer=norm_layer, use_dropout=use_dropout, depth=4)
+    elif netG == 'standard_unet_3':
+        net = StandardUNet(input_nc, output_nc, ngf, norm_layer=norm_layer, use_dropout=use_dropout, depth=3)
+    elif netG == 'standard_unet_5':
+        net = StandardUNet(input_nc, output_nc, ngf, norm_layer=norm_layer, use_dropout=use_dropout, depth=5)
     else:
         raise NotImplementedError('Generator model name [%s] is not recognized' % netG)
     return init_net(net, init_type, init_gain, gpu_ids)
@@ -507,44 +520,33 @@ class UnetGenerator(nn.Module):
         """
         super(UnetGenerator, self).__init__()
         # construct unet structure
-        unet_block = UnetSkipConnectionBlock(ngf * 8, ngf * 8, input_nc=None, submodule=None, norm_layer=norm_layer, innermost=True)  # add the innermost layer
-        for i in range(num_downs - 5):          # add intermediate layers with ngf * 8 filters
-            unet_block = UnetSkipConnectionBlock(ngf * 8, ngf * 8, input_nc=None, submodule=unet_block, norm_layer=norm_layer, use_dropout=use_dropout)
-        # gradually reduce the number of filters from ngf * 8 to ngf
-        unet_block = UnetSkipConnectionBlock(ngf * 4, ngf * 8, input_nc=None, submodule=unet_block, norm_layer=norm_layer)
-        unet_block = UnetSkipConnectionBlock(ngf * 2, ngf * 4, input_nc=None, submodule=unet_block, norm_layer=norm_layer)
-        unet_block = UnetSkipConnectionBlock(ngf, ngf * 2, input_nc=None, submodule=unet_block, norm_layer=norm_layer)
-        self.model = UnetSkipConnectionBlock(output_nc, ngf, input_nc=input_nc, submodule=unet_block, outermost=True, norm_layer=norm_layer)  # add the outermost layer
+        if num_downs >= 5:
+            unet_block = UnetSkipConnectionBlock(ngf * 8, ngf * 8, input_nc=None, submodule=None, norm_layer=norm_layer, innermost=True)  # add the innermost layer
+            for i in range(num_downs - 5):          # add intermediate layers with ngf * 8 filters
+                unet_block = UnetSkipConnectionBlock(ngf * 8, ngf * 8, input_nc=None, submodule=unet_block, norm_layer=norm_layer, use_dropout=use_dropout)
+            # gradually reduce the number of filters from ngf * 8 to ngf
+            unet_block = UnetSkipConnectionBlock(ngf * 4, ngf * 8, input_nc=None, submodule=unet_block, norm_layer=norm_layer)
+            unet_block = UnetSkipConnectionBlock(ngf * 2, ngf * 4, input_nc=None, submodule=unet_block, norm_layer=norm_layer)
+            unet_block = UnetSkipConnectionBlock(ngf, ngf * 2, input_nc=None, submodule=unet_block, norm_layer=norm_layer)
+            self.model = UnetSkipConnectionBlock(output_nc, ngf, input_nc=input_nc, submodule=unet_block, outermost=True, norm_layer=norm_layer)  # add the outermost layer
+        elif num_downs == 4:
+            unet_block = UnetSkipConnectionBlock(ngf * 4, ngf * 4, input_nc=None, submodule=None, norm_layer=norm_layer, innermost=True)  # add the innermost layer
+            unet_block = UnetSkipConnectionBlock(ngf * 2, ngf * 4, input_nc=None, submodule=unet_block, norm_layer=norm_layer)
+            unet_block = UnetSkipConnectionBlock(ngf, ngf * 2, input_nc=None, submodule=unet_block, norm_layer=norm_layer)
+            self.model = UnetSkipConnectionBlock(output_nc, ngf, input_nc=input_nc, submodule=unet_block, outermost=True, norm_layer=norm_layer)  # add the outermost layer
+        elif num_downs == 3:
+            unet_block = UnetSkipConnectionBlock(ngf * 2, ngf * 2, input_nc=None, submodule=None, norm_layer=norm_layer, innermost=True)  # add the innermost layer
+            unet_block = UnetSkipConnectionBlock(ngf, ngf * 2, input_nc=None, submodule=unet_block, norm_layer=norm_layer)
+            self.model = UnetSkipConnectionBlock(output_nc, ngf, input_nc=input_nc, submodule=unet_block, outermost=True, norm_layer=norm_layer)  # add the outermost layer
+        elif num_downs == 2:
+            unet_block = UnetSkipConnectionBlock(ngf, ngf, input_nc=None, submodule=None, norm_layer=norm_layer, innermost=True)  # add the innermost layer
+            self.model = UnetSkipConnectionBlock(output_nc, ngf, input_nc=input_nc, submodule=unet_block, outermost=True, norm_layer=norm_layer)  # add the outermost layer
+
+
 
     def forward(self, input):
         """Standard forward"""
         return self.model(input)
-
-class EquivariantUnetGenerator(nn.Module):
-    """创建基于U-Net的生成器，具有C8等变性"""
-
-    def __init__(self, input_nc, output_nc, gspace, num_downs, ngf=64, use_dropout=False):
-        """构造一个具有C8等变性的U-Net生成器"""
-        super(EquivariantUnetGenerator, self).__init__()
-        
-
-        # 从最内层到最外层构造U-Net结构
-        unet_block = EquivariantUnetSkipConnectionBlock(ngf * 8, ngf * 8, gspace, input_nc=None, submodule=None, innermost=True)  # 添加最内层
-        for i in range(num_downs - 5):
-            unet_block = EquivariantUnetSkipConnectionBlock(ngf * 8, ngf * 8, gspace, input_nc=None, submodule=unet_block, use_dropout=use_dropout)
-        # 逐渐减少过滤器数量
-        unet_block = EquivariantUnetSkipConnectionBlock(ngf * 4, ngf * 8, gspace, input_nc=None, submodule=unet_block)
-        unet_block = EquivariantUnetSkipConnectionBlock(ngf * 2, ngf * 4, gspace, input_nc=None, submodule=unet_block)
-        unet_block = EquivariantUnetSkipConnectionBlock(ngf, ngf * 2, gspace, input_nc=None, submodule=unet_block)
-        self.model = EquivariantUnetSkipConnectionBlock(output_nc, ngf, gspace, input_nc=input_nc, submodule=unet_block, outermost=True)  # 添加最外层
-
-    def forward(self, input):
-        #print("Entering EquivariantUnetGenerator.forward")
-        #print(f"Input type: {type(input)}, shape: {input.shape}")
-        output = self.model(input)
-        #print("Exiting EquivariantUnetGenerator.forward")
-        #print(f"Output type: {type(output)}, shape: {output.shape}")
-        return output
 
 
 class UnetSkipConnectionBlock(nn.Module):
@@ -616,76 +618,106 @@ class UnetSkipConnectionBlock(nn.Module):
         else:   # add skip connections
             return torch.cat([x, self.model(x)], 1)
 
-class EquivariantUnetSkipConnectionBlock(nn.Module):
-    def __init__(self, outer_nc, inner_nc, gspace, input_nc=None,
-                 submodule=None, outermost=False, innermost=False, use_dropout=False):
-        super(EquivariantUnetSkipConnectionBlock, self).__init__()
-        
-        self.gspace = gspace
-        self.outer_nc = outer_nc
-        # 定义G空间
-        if input_nc is None:
-            input_nc = outer_nc
-        self.outermost = outermost
-        use_bias = True  # 根据等变层的需要设置
-        
-        # 定义等变卷积层
-        # downconv = enn.R2Conv(gspace.regular_repr(input_nc), gspace.regular_repr(inner_nc), kernel_size=4, stride=2, padding=1, bias=use_bias)
-        downrelu = PointwiseNonLinearity(enn.FieldType(gspace, input_nc*[gspace.regular_repr]), function='p_relu')
-        downconv = enn.R2Conv(enn.FieldType(gspace, input_nc*[gspace.regular_repr]), enn.FieldType(gspace, inner_nc*[gspace.regular_repr]), kernel_size=4, stride=2, padding=1, bias=use_bias)
-        downnorm = enn.InnerBatchNorm(enn.FieldType(gspace, inner_nc*[gspace.regular_repr]))
-        if outermost:
-            uprelu = PointwiseNonLinearity(enn.FieldType(gspace, inner_nc*2*[gspace.regular_repr]), function='p_relu')
-            upconv = enn.R2ConvTransposed(enn.FieldType(gspace, inner_nc*2*[gspace.regular_repr]), enn.FieldType(gspace, outer_nc*[gspace.regular_repr]), kernel_size=4, stride=2, padding=1)
-            model = [downconv, submodule,  upconv]
-            #model = [downconv,  upconv]
-        elif innermost:
-            uprelu = PointwiseNonLinearity(enn.FieldType(gspace, inner_nc*[gspace.regular_repr]), function='p_relu')
-            upconv = enn.R2ConvTransposed(enn.FieldType(gspace, inner_nc*[gspace.regular_repr]), enn.FieldType(gspace, outer_nc*[gspace.regular_repr]), kernel_size=4, stride=2, padding=1, bias=use_bias)
-            upnorm = enn.InnerBatchNorm(enn.FieldType(gspace, outer_nc*[gspace.regular_repr]))
-            #model = [downconv,  upconv]
-            model = [downrelu, downconv, uprelu, upconv, upnorm]
-        else:
-            uprelu = PointwiseNonLinearity(enn.FieldType(gspace, inner_nc*2*[gspace.regular_repr]), function='p_relu')
-            upconv = enn.R2ConvTransposed(enn.FieldType(gspace, inner_nc*2*[gspace.regular_repr]), enn.FieldType(gspace, outer_nc*[gspace.regular_repr]), kernel_size=4, stride=2, padding=1, bias=use_bias)
-            upnorm = enn.InnerBatchNorm(enn.FieldType(gspace, outer_nc*[gspace.regular_repr]))
-            #model = [downconv,  submodule, upconv]
-            model = [downrelu, downconv, downnorm, submodule, uprelu, upconv, upnorm]
-            if use_dropout:
-                model += [enn.PointwiseDropout(enn.FieldType(gspace, outer_nc*[gspace.regular_repr]))]
-        self.model = nn.Sequential(*model) 
 
+
+class StandardUNet(nn.Module):
+    """Standard U-Net from Ronneberger et al. 2015 (https://arxiv.org/abs/1505.04597)
+
+    Uses 3x3 convolutions, 2x2 max pooling for downsampling, and 2x2 transposed convolutions for upsampling.
+    """
+
+    def __init__(self, input_nc, output_nc, ngf=64, norm_layer=nn.BatchNorm2d, use_dropout=False, depth=4):
+        """Construct a standard U-Net generator
+
+        Parameters:
+            input_nc (int)  -- the number of channels in input images
+            output_nc (int) -- the number of channels in output images
+            ngf (int)       -- the number of filters in the first conv layer (doubles each level)
+            norm_layer      -- normalization layer
+            use_dropout (bool) -- if use dropout layers
+            depth (int)     -- number of downsampling levels (default 4 for 128x128 -> 8x8)
+        """
+        super(StandardUNet, self).__init__()
+
+        if type(norm_layer) == functools.partial:
+            use_bias = norm_layer.func == nn.InstanceNorm2d
+        else:
+            use_bias = norm_layer == nn.InstanceNorm2d
+
+        self.depth = depth
+        self.use_dropout = use_dropout
+
+        # Encoder (contracting path)
+        self.encoders = nn.ModuleList()
+        self.pools = nn.ModuleList()
+
+        in_ch = input_nc
+        for i in range(depth):
+            out_ch = ngf * (2 ** i)
+            self.encoders.append(self._double_conv(in_ch, out_ch, norm_layer, use_bias))
+            if i < depth - 1:
+                self.pools.append(nn.MaxPool2d(2))
+            in_ch = out_ch
+
+        # Bottleneck
+        bottleneck_ch = ngf * (2 ** depth)
+        self.bottleneck = self._double_conv(ngf * (2 ** (depth - 1)), bottleneck_ch, norm_layer, use_bias)
+
+        # Decoder (expanding path)
+        self.upconvs = nn.ModuleList()
+        self.decoders = nn.ModuleList()
+
+        for i in range(depth - 1, -1, -1):
+            in_ch = ngf * (2 ** (i + 1)) if i == depth - 1 else ngf * (2 ** (i + 1))
+            out_ch = ngf * (2 ** i)
+            # Transposed conv for upsampling
+            self.upconvs.append(nn.ConvTranspose2d(in_ch if i == depth - 1 else in_ch, out_ch, kernel_size=2, stride=2, bias=use_bias))
+            # Double conv after concatenation (out_ch * 2 because of skip connection)
+            self.decoders.append(self._double_conv(out_ch * 2, out_ch, norm_layer, use_bias))
+
+        # Final 1x1 conv
+        self.final_conv = nn.Conv2d(ngf, output_nc, kernel_size=1)
+        self.tanh = nn.Tanh()
+
+    def _double_conv(self, in_ch, out_ch, norm_layer, use_bias):
+        """Two consecutive 3x3 convolutions with norm and ReLU"""
+        layers = [
+            nn.Conv2d(in_ch, out_ch, kernel_size=3, padding=1, bias=use_bias),
+            norm_layer(out_ch),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(out_ch, out_ch, kernel_size=3, padding=1, bias=use_bias),
+            norm_layer(out_ch),
+            nn.ReLU(inplace=True)
+        ]
+        if self.use_dropout:
+            layers.append(nn.Dropout(0.5))
+        return nn.Sequential(*layers)
 
     def forward(self, x):
-        #print("Entering connet.forward")
-        #print(f"Input type: {type(x)}, shape: {x.shape}")
-        model_output = self.model(x)
-        if self.outermost:
-            # 如果是最外层，直接返回模型输出
-            #print("Exiting connet.forward")
-            #print(f"Output type: {type(model_output)}, shape: {model_output.shape}")
-            return model_output
-        else:
-            x_tensor = x.tensor  # 从GeometricTensor中提取张量
-            model_output_tensor = model_output.tensor
-            # 否则，进行连接并确保返回GeometricTensor（如果输入也是GeometricTensor）
-            concatenated = torch.cat([x_tensor, model_output_tensor], 1)
-            field_type = enn.FieldType(self.gspace, [self.gspace.regular_repr] * self.outer_nc * 2)
-            concatenated = enn.GeometricTensor(concatenated, field_type)
-            #print("Exiting connet.forward")
-            #print(f"Output type: {type(concatenated)}, shape: {concatenated.shape}")
-            return concatenated
-   
-    # def forward(self, x):
-    #     # print("Entering connet.forward")
-    #     # print(f"Input type: {type(x)}, shape: {x.shape}")
-    #     y = self.model(x)
-    #     # print("Exiting connet.forward")
-    #     # print(f"Output type: {type(y)}, shape: {y.shape}")
-    #     return y
+        # Encoder path with skip connections
+        enc_features = []
+        for i, encoder in enumerate(self.encoders):
+            x = encoder(x)
+            enc_features.append(x)
+            if i < len(self.pools):
+                x = self.pools[i](x)
 
+        # Bottleneck
+        x = self.bottleneck(x)
 
+        # Decoder path
+        for i, (upconv, decoder) in enumerate(zip(self.upconvs, self.decoders)):
+            x = upconv(x)
+            # Get corresponding encoder feature (reverse order)
+            skip = enc_features[-(i + 1)]
+            # Handle size mismatch (crop if necessary)
+            if x.shape != skip.shape:
+                x = F.interpolate(x, size=skip.shape[2:], mode='bilinear', align_corners=False)
+            x = torch.cat([skip, x], dim=1)
+            x = decoder(x)
 
+        x = self.final_conv(x)
+        return self.tanh(x)
 
 
 class NLayerDiscriminator(nn.Module):
@@ -766,3 +798,179 @@ class PixelDiscriminator(nn.Module):
     def forward(self, input):
         """Standard forward."""
         return self.net(input)
+
+from torchvision.models import resnet50
+from torchvision.ops import FeaturePyramidNetwork
+class BackboneWithFPN(nn.Module):
+    def __init__(self, out_channels=256):
+        super().__init__()
+        backbone = resnet50(pretrained=True)
+        self.body = nn.ModuleDict({
+            'c2': nn.Sequential(backbone.conv1, backbone.bn1, backbone.relu,
+                                 backbone.maxpool, backbone.layer1),
+            'c3': backbone.layer2,
+            'c4': backbone.layer3,
+            'c5': backbone.layer4,
+        })
+        self.fpn = FeaturePyramidNetwork(
+            in_channels_list=[256, 512, 1024, 2048],
+            out_channels=out_channels
+        )
+
+    def forward(self, x):
+        feats = {}
+        c2 = self.body['c2'](x)  # 1/4
+        c3 = self.body['c3'](c2) # 1/8
+        c4 = self.body['c4'](c3) # 1/16
+        c5 = self.body['c5'](c4) # 1/32
+        feats['0'] = c2
+        feats['1'] = c3
+        feats['2'] = c4
+        feats['3'] = c5
+        return self.fpn(feats)   # {'0': P2, '1': P3, '2': P4, '3': P5}
+
+# ----------------------------------------
+# 2. Pixel Decoder (UPer-like)
+# ----------------------------------------
+class PixelDecoder(nn.Module):
+    def __init__(self, in_channels=256, embed_dim=256):
+        super().__init__()
+        # 将所有 FPN 输出统一投影到 embed_dim
+        self.lateral_convs = nn.ModuleList([
+            nn.Conv2d(in_channels, embed_dim, 1) for _ in range(4)
+        ])
+        # 逐层上采样 + 融合
+        self.smooth_convs = nn.ModuleList([
+            nn.Conv2d(embed_dim, embed_dim, 3, padding=1) for _ in range(3)
+        ])
+        # 最终输出 mask feature（1/4 分辨率）
+        self.out_conv = nn.Conv2d(embed_dim, embed_dim, 3, padding=1)
+
+    def forward(self, feats):
+        # feats: dict{'0':P2, '1':P3, '2':P4, '3':P5}
+        p2, p3, p4, p5 = [feats[str(i)] for i in range(4)]
+        m5 = self.lateral_convs[3](p5)
+        m4 = self.lateral_convs[2](p4) + F.interpolate(m5, scale_factor=2, mode='bilinear', align_corners=False)
+        m3 = self.lateral_convs[1](p3) + F.interpolate(self.smooth_convs[0](m4), scale_factor=2, mode='bilinear', align_corners=False)
+        m2 = self.lateral_convs[0](p2) + F.interpolate(self.smooth_convs[1](m3), scale_factor=2, mode='bilinear', align_corners=False)
+        mask_feat = self.out_conv(self.smooth_convs[2](m2))  # [B,embed, H/4, W/4]
+        return mask_feat
+
+# ----------------------------------------
+# 3. Transformer Decoder
+# ----------------------------------------
+class TransformerDecoderLayer(nn.Module):
+    def __init__(self, embed_dim=256, num_heads=8, dim_feedforward=2048):
+        super().__init__()
+        self.self_attn = nn.MultiheadAttention(embed_dim, num_heads, batch_first=True)
+        self.cross_attn = nn.MultiheadAttention(embed_dim, num_heads, batch_first=True)
+        self.linear1 = nn.Linear(embed_dim, dim_feedforward)
+        self.dropout = nn.Dropout(0.1)
+        self.linear2 = nn.Linear(dim_feedforward, embed_dim)
+        self.norm1 = nn.LayerNorm(embed_dim)
+        self.norm2 = nn.LayerNorm(embed_dim)
+        self.norm3 = nn.LayerNorm(embed_dim)
+        self.dropout1 = nn.Dropout(0.1)
+        self.dropout2 = nn.Dropout(0.1)
+        self.dropout3 = nn.Dropout(0.1)
+
+    def forward(self, tgt, query_pos, src, src_pos):
+        # 自注意力
+        q = k = tgt + query_pos
+        tgt2, _ = self.self_attn(q, k, tgt)
+        tgt = tgt + self.dropout1(tgt2)
+        tgt = self.norm1(tgt)
+        # 交叉注意力
+        tgt2, _ = self.cross_attn(tgt + query_pos, src + src_pos, src)
+        tgt = tgt + self.dropout2(tgt2)
+        tgt = self.norm2(tgt)
+        # 前馈
+        tgt2 = self.linear2(self.dropout(F.relu(self.linear1(tgt))))
+        tgt = tgt + self.dropout3(tgt2)
+        tgt = self.norm3(tgt)
+        return tgt
+
+class TransformerDecoder(nn.Module):
+    def __init__(self, num_layers=6, **kwargs):
+        super().__init__()
+        self.layers = nn.ModuleList([TransformerDecoderLayer(**kwargs) for _ in range(num_layers)])
+
+    def forward(self, tgt, query_pos, src, src_pos):
+        for layer in self.layers:
+            tgt = layer(tgt, query_pos, src, src_pos)
+        return tgt
+
+# ----------------------------------------
+# 4. Mask2Former 主模型
+# ----------------------------------------
+class Mask2Former(nn.Module):
+    def __init__(self,
+                 num_classes,
+                 num_queries=100,
+                 hidden_dim=256,
+                 backbone_out_channels=256):
+        super().__init__()
+        # 1) 特征提取
+        self.backbone = BackboneWithFPN(out_channels=backbone_out_channels)
+        self.pixel_decoder = PixelDecoder(in_channels=backbone_out_channels, embed_dim=hidden_dim)
+
+        # 2) Learnable Queries
+        self.query_embed = nn.Embedding(num_queries, hidden_dim)
+        # query positional embedding
+        self.query_pos = nn.Embedding(num_queries, hidden_dim)
+
+        # 3) Transformer Decoder
+        self.transformer_decoder = TransformerDecoder(
+            num_layers=6,
+            embed_dim=hidden_dim,
+            num_heads=8,
+            dim_feedforward=hidden_dim * 4
+        )
+
+        # 4) Prediction heads
+        self.class_embed = nn.Linear(hidden_dim, num_classes + 1)    # +1 for "no object" 类别
+        self.mask_embed = nn.Linear(hidden_dim, hidden_dim)
+
+        # Positional encoding for pixel features
+        self.row_embed = nn.Parameter(torch.randn(50, hidden_dim // 2))
+        self.col_embed = nn.Parameter(torch.randn(50, hidden_dim // 2))
+
+    def forward(self, x):
+        B, _, H, W = x.shape
+        # backbone + FPN → multi-scale features
+        feats = self.backbone(x)
+        # pixel decoder → 高分辨率 mask feature
+        mask_feat = self.pixel_decoder(feats)            # [B, C, H/4, W/4]
+
+        # flatten mask_feat 并加上位置编码
+        _, C, h, w = mask_feat.shape
+        pos = self.build_2d_position_encoding(h, w, x.device)  # [1, h*w, C]
+        src = mask_feat.flatten(2).permute(0, 2, 1)             # [B, h*w, C]
+
+        # queries 初始值
+        query_emb = self.query_embed.weight.unsqueeze(0).expand(B, -1, -1)   # [B, Q, C]
+        query_pos = self.query_pos.weight.unsqueeze(0).expand(B, -1, -1)    # [B, Q, C]
+
+        # transformer decoder
+        hs = self.transformer_decoder(query_emb, query_pos, src, pos)      # [B, Q, C]
+
+        # classification & mask embeddings
+        logits = self.class_embed(hs)           # [B, Q, num_classes+1]
+        mask_emb = self.mask_embed(hs)          # [B, Q, C]
+
+        # mask prediction: Q × (C @ mask_feat) → [B, Q, h*w] → reshape为 [B, Q, h, w]
+        mask_preds = torch.einsum("bqc, bchw -> bqhw", mask_emb, mask_feat)
+
+        return {'pred_logits': logits, 'pred_masks': mask_preds}
+
+    def build_2d_position_encoding(self, H, W, device):
+        # 简单的行列拼接位置编码
+        i = torch.arange(W, device=device)
+        j = torch.arange(H, device=device)
+        x_emb = self.col_embed[i]  # [W, C/2]
+        y_emb = self.row_embed[j]  # [H, C/2]
+        pe = torch.cat([
+            x_emb.unsqueeze(0).repeat(H,1,1),
+            y_emb.unsqueeze(1).repeat(1,W,1)
+        ], dim=-1)               # [H, W, C]
+        return pe.view(1, H*W, -1)  # [1, H*W, C]
