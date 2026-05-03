@@ -4,3 +4,7 @@ CLAUDE.md
 checkpoints/
 __pycache__/
 datasets/
+results/
+wandb/
+*.pyc
+.DS_Store

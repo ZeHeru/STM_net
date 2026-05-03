@@ -1,0 +1,57 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite the article below."
+title: "STM_net in PyTorch"
+repository-code: "https://github.com/ZeHeru/STM_net"
+authors:
+  - family-names: Zhu
+    given-names: Yu
+  - family-names: Xue
+    given-names: Renjie
+  - family-names: Ren
+    given-names: Hao
+  - family-names: Chen
+    given-names: Yicheng
+  - family-names: Yan
+    given-names: Wenjie
+  - family-names: Wu
+    given-names: Bingzheng
+  - family-names: Duan
+    given-names: Sai
+  - family-names: Zhang
+    given-names: Haiming
+  - family-names: Chi
+    given-names: Lifeng
+  - family-names: Xu
+    given-names: Xin
+preferred-citation:
+  type: article
+  authors:
+    - family-names: Zhu
+      given-names: Yu
+    - family-names: Xue
+      given-names: Renjie
+    - family-names: Ren
+      given-names: Hao
+    - family-names: Chen
+      given-names: Yicheng
+    - family-names: Yan
+      given-names: Wenjie
+    - family-names: Wu
+      given-names: Bingzheng
+    - family-names: Duan
+      given-names: Sai
+    - family-names: Zhang
+      given-names: Haiming
+    - family-names: Chi
+      given-names: Lifeng
+    - family-names: Xu
+      given-names: Xin
+  title: "Reconstructing Pristine Molecular Orbitals from Scanning Tunneling Microscope Images via Artificial Intelligence Approaches"
+  journal: "JACS Au"
+  year: 2025
+  volume: 5
+  issue: 7
+  start: 3163
+  end: 3170
+  doi: "10.1021/jacsau.5c00310"
+  date-published: 2025-06-16
